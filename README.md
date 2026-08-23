@@ -15,6 +15,12 @@ solver lifts it to a MANO-consistent 3D hand. The reconstruction stage is only
 2.0M parameters, and the analytic kinematic Jacobian makes each solve about
 14&times; cheaper than automatic differentiation.
 
+<p align="center">
+  <img src="assets/media/optim_dexycb.gif" alt="The analytical LM solver fitting a MANO hand on DexYCB, with the energy decreasing live" width="640">
+  <br>
+  <em>The analytical solver converging on a DexYCB sample: fitted MANO hand and energy, live over LM iterations.</em>
+</p>
+
 This repository reproduces **Table 1** of the paper: multi-view parametric hand
 mesh recovery on five benchmarks. The reusable, model-agnostic solver core is
 released separately as
