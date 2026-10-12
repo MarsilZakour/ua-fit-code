@@ -20,7 +20,7 @@ file by the model class name). The state dict is loaded with `strict=False`; a
 small refiner sub-module is present in the file but disabled at evaluation.
 
 > Download link: see the project page,
-> https://marcilzakour.github.io/ua-fit/ (release coming soon).
+> https://marsilzakour.github.io/ua-fit/ (release coming soon).
 
 ## For training from scratch
 

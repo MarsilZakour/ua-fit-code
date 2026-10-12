@@ -6,8 +6,8 @@ Multi-view Hand Mesh Recovery.** ECCV 2026 &mdash; HANDS Workshop.
 Marsil Zakour, Constantin Patsch, Martin Piccolrovazzi, Yuankai Wu, Eckehard
 Steinbach &middot; Technical University of Munich (Chair of Media Technology, MIRMI).
 
-**[Project page](https://marcilzakour.github.io/ua-fit/)** &middot;
-[Solver core (parafit)](https://github.com/marcilzakour/parafit) &middot; Paper (coming soon)
+**[Project page](https://marsilzakour.github.io/ua-fit/)** &middot;
+[Solver core (parafit)](https://github.com/MarsilZakour/parafit) &middot; Paper (coming soon)
 
 UA-Fit learns only per-view 2D evidence (a dense oriented vote field with
 per-vote anisotropic precision); a parameter-free analytical Levenberg&ndash;Marquardt
@@ -24,7 +24,7 @@ solver lifts it to a MANO-consistent 3D hand. The reconstruction stage is only
 This repository reproduces **Table 1** of the paper: multi-view parametric hand
 mesh recovery on five benchmarks. The reusable, model-agnostic solver core is
 released separately as
-**[parafit](https://github.com/marcilzakour/parafit)**.
+**[parafit](https://github.com/MarsilZakour/parafit)**.
 
 ## Install
 
@@ -79,7 +79,7 @@ quick sanity subset.
 The training code and full from-scratch recipe are released after the paper is
 published. This repository currently provides evaluation / inference and the
 released checkpoint. The reusable, model-agnostic solver core is already available
-as **[parafit](https://github.com/marcilzakour/parafit)**.
+as **[parafit](https://github.com/MarsilZakour/parafit)**.
 
 ## Citation
 
