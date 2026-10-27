@@ -18,9 +18,11 @@ solver lifts it to a MANO-consistent 3D hand. The reconstruction stage is only
 14&times; cheaper than automatic differentiation.
 
 <p align="center">
-  <img src="assets/media/optim_dexycb.gif" alt="The analytical LM solver fitting a MANO hand on DexYCB, with the energy decreasing live" width="640">
+  <img src="assets/media/solver_walk_dexycb.gif" alt="UA-Fit on a DexYCB test sample: per-view 2D joints with uncertainty, the solver walking the thumb through the vote field, and the fitted MANO mesh converging" width="1000">
   <br>
-  <em>The analytical solver converging on a DexYCB sample: fitted MANO hand and energy, live over LM iterations.</em>
+  <em>UA-Fit on a DexYCB test sample: the network's per-view 2D joints come with an uncertainty (large where the
+  thumb is hidden behind the object, small where it is visible); the solver walks each joint through the vote field
+  to the ground truth (bottom, zoomed) while the fitted MANO mesh converges (top) in a few LM iterations.</em>
 </p>
 
 This repository reproduces **Table 1** of the paper: multi-view parametric hand
