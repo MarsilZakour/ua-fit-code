@@ -2,32 +2,27 @@
 
 ## Protocol
 
-Every number is measured through one identical harness at seed 1:
+Every number is measured through one harness at seed 1:
 
-- **Full official split** of each dataset, at its fixed maximum view count
-  (DexYCB 8, HO3D 5, ARCTIC 8, InterHand2.6M 8, OakInk 4).
-- **Feed-forward shape ("fast") mode**: the compact shape head emits the MANO
-  betas and the analytical Levenberg-Marquardt solver performs a single fit
-  (15 iterations, analytic kinematic Jacobian, tuned 3D-anchor weight
-  `lambda_3D = 3e5`, learned Huber radius scaled by 0.5, i.e. 3px -> 1.5px).
-- **Metrics** (mm): MPVPE (mean per-vertex error), MPJPE (mean per-joint error
-  against **mesh-regressed** ground-truth joints), and PA-MPVPE (Procrustes-aligned
-  MPVPE). Joints are regressed from the predicted / ground-truth mesh with the
-  same joint regressor for both, because the raw joint annotations use a
-  different joint convention.
-- **InterHand crop fix**: a subset of the released InterHand2.6M crop boxes is
-  corrupt (out-of-frame joints inflate them by an order of magnitude). Each
-  view's crop is rebuilt from the visible ground-truth joints
-  (`RECROP_FROM_JOINTS`), applied identically to every method, so the crop
-  tightly contains the evaluated hand.
+- **Full official split** of each dataset at a fixed view count (DexYCB 8,
+  HO3D 5, ARCTIC 8, InterHand2.6M 8, OakInk 4). Which cameras form the views of a
+  scene is drawn from the seeded RNG, exactly as in the original evaluation.
+- **Feed-forward shape ("fast") mode**: the shape head predicts the MANO betas and
+  the analytical Levenberg-Marquardt solver performs a single fit (15 iterations,
+  3D-anchor weight `lambda_3D = 3e5`, learned Huber radius scaled by 0.5, i.e.
+  3 px -> 1.5 px). All settings: `uafit.fitting.FitSettings`.
+- **Metrics** (mm): MPVPE, MPJPE against **mesh-regressed** ground-truth joints
+  (the same regressor defines predicted and ground-truth joints, because the raw
+  joint annotations follow other conventions), PA-MPVPE.
+- **InterHand crop fix**: part of the released InterHand2.6M boxes are corrupt
+  (out-of-frame joints inflate them); every view's crop is rebuilt from the
+  visible ground-truth joints, identically for every method.
 
 ## Full table
 
 ```bash
-python scripts/eval.py --ckpt checkpoints/uafit_w40 --config configs/uafit_eval.yaml
+python scripts/evaluate.py --checkpoint Marsil123/ua-fit --output runs/table1_mano.json
 ```
-
-Expected (full-set; small run-to-run variation of ~0.05 mm from shard ordering):
 
 | dataset (views) | n     | MPVPE | MPJPE | PA-MPVPE |
 |---|---|---|---|---|
@@ -37,34 +32,61 @@ Expected (full-set; small run-to-run variation of ~0.05 mm from shard ordering):
 | InterHand (8v) | 85235 | 8.77 | 7.79 | 6.23 |
 | OakInk (4v)    | 21322 | 9.58 | 8.86 | 5.67 |
 
-## Per-dataset / quick runs
+RUNTIME_NOTE
+
+## Per-dataset and quick runs
 
 ```bash
-# one dataset, full split
-python scripts/eval.py --ckpt checkpoints/uafit_w40 --datasets HO3D
-
-# quick sanity subset (2000 scenes) -- ARCTIC/InterHand are subset-sensitive,
-# so a small subset reads lower than the full-split value above
-python scripts/eval.py --ckpt checkpoints/uafit_w40 --datasets HO3D --limit 2000
-
-# view-count study: cap every dataset at N views
-python scripts/eval.py --ckpt checkpoints/uafit_w40 --views 4
+python scripts/evaluate.py --datasets HO3D                    # one dataset, full split
+python scripts/evaluate.py --datasets HO3D DexYCB --limit 200  # quick subset (ARCTIC / InterHand are subset-sensitive)
+python scripts/evaluate.py --views 4                           # cap every dataset at 4 views
+python scripts/evaluate.py --iterations 5                      # solver settings: --iterations, --joint-anchor-weight, --huber-radius-scale
 ```
 
-Useful flags: `--iters` (LM iterations), `--jac analytic|autograd` (Jacobian
-mode), `--rad-mult` (Huber-radius multiplier), `--gnscale` (3D-anchor weight),
-`--batch-size`, `--workers`, `--device`.
+Quick-subset reference (`--datasets HO3D DexYCB --limit 200`, 208 scenes each):
+HO3D 7.61 / 7.16 / 4.66, DexYCB 7.38 / 7.07 / 4.73.
 
-## Notes
+## Other hand models
 
-- **Zero-shot rows.** The paper additionally reports zero-shot transfer on
-  GigaHands (public) and an internal multi-view set. The internal set is not
-  public and is therefore not reproducible here. GigaHands can be evaluated by
-  pointing a new test section at its shards with the same protocol (6 views).
-- **POEM-v2-param column.** Table 1 also compares against POEM-v2's released
-  parametric checkpoint, evaluated through the same harness. That baseline is
-  external to this repository (POEM-v2 is a separate project); this repo
-  reproduces the UA-Fit column.
-- **Subset vs full split.** The default is the full official split. ARCTIC and
-  InterHand2.6M are subset-sensitive; a 2000-scene subset flatters ARCTIC
-  (~6.7 vs full 7.5). Always report the full split for headline numbers.
+`--hand-model mhr` and `--hand-model umetrack` fit Meta's MHR hand or the UmeTrack
+hand to the same network evidence through the calibrated MANO-joint
+correspondence (see README and `assets/README.md`). Joints are the fitted
+model's MANO-convention joints and vertices are MANO-topology points read off the
+fitted mesh, so the numbers are comparable to the MANO row, with two
+representation gaps on top: how well the model can place MANO's joints
+(calibration, held-out residual below) and how well a uniformly scaled template
+matches each subject's MANO surface (shape is transferred from the predicted MANO
+betas as a single scale).
+
+| model | correspondence held-out joint / vertex residual | HO3D (200) MPVPE / MPJPE / PA | DexYCB (200) MPVPE / MPJPE / PA |
+|---|---|---|---|
+| MANO     | (exact)            | 7.61 / 7.16 / 4.66 | 7.38 / 7.07 / 4.73 |
+| MHR      | 1.62 / 5.49 mm     | 8.87 / 7.48 / 6.35 | 9.33 / 7.19 / 7.54 |
+| UmeTrack | UME_CALIB          | UME_HO3D | UME_DEX |
+
+MHR reaches almost the MANO joint accuracy (MPJPE +0.1-0.3 mm); the vertex
+metrics carry the shape gap of a uniformly scaled template (MPVPE +1.3-2 mm,
+PA-MPVPE +1.7-2.8 mm). MHR fits run at ~0.5 scenes/s (full-body forward
+kinematics and a forward-mode Jacobian per iteration) vs ~3.6 for MANO on the
+same shared GPU.
+
+## How the release code was checked against the original
+
+The release package (`uafit/`) is a re-implementation of the research code that
+produced the paper numbers (`lib/`, `scripts/eval.py`; still in the git history
+at commit `50d9efb`, together with the parity scripts in `tests/`; run them from a checkout of that commit):
+
+- `tests/test_network_parity.py`: every network output (triangulated joints,
+  betas, vote field, vote precision, heatmap intrinsics, extrinsics) is
+  bit-identical to the original network on HO3D and DexYCB batches.
+- `tests/test_data_parity.py`: test batches are bit-identical to the original
+  loader for all five datasets (single worker), and the scene sets match with 4
+  workers.
+- `tests/test_fitter_parity.py`: the solver (parafit `LMSolver` + `uafit.fitting`
+  energies + parafit `ManoModel`) builds the same normal equations as the original
+  solver (relative difference ~1e-7). The paper solves them in float32 at
+  condition numbers ~1e9, so rounding at that level moves individual samples; the
+  test measures that noise floor by re-running the original solver on inputs
+  perturbed by 1e-6 px. On 200 scenes each of HO3D, DexYCB and ARCTIC the release
+  solver's per-sample deviation equals that floor (mean 0.01-0.02 mm) and the mean
+  MPVPE agrees within 0.002 mm.

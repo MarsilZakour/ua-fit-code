@@ -47,6 +47,8 @@ class NetworkEvidence:
     world_to_camera: torch.Tensor       # (V_total, 4, 4) inverse of batch["target_cam_extr"]
     views_per_scene: List[int]          # batch["cam_view_num"], len B
     heatmap_size: Tuple[int, int]       # (h, w)
+    joints_2d_heatmap: Optional[torch.Tensor] = None     # (V_total, 21, 2) per-view 2D joint consensus, heatmap px
+    joints_2d_precision: Optional[torch.Tensor] = None   # (V_total, 21, 2, 2) its precision (inverse covariance), 1/px^2
 
 
 @dataclass(frozen=True)
@@ -184,6 +186,8 @@ class UAFitNetwork(nn.Module):
             world_to_camera=w2c_all,
             views_per_scene=views_per_scene,
             heatmap_size=self.cfg.heatmap_size,
+            joints_2d_heatmap=cons,
+            joints_2d_precision=omega2,
         )
 
     @property
@@ -196,17 +200,31 @@ class UAFitNetwork(nn.Module):
 # Checkpoint loading
 # ──────────────────────────────────────────────────────────────────────────
 
-def _find_checkpoint_file(checkpoint_path: Union[str, Path]) -> Path:
-    p = Path(checkpoint_path)
+RELEASE_FILE = "uafit_w40.safetensors"        # released weights (network only, no MANO data)
+LEGACY_FILE = "DOVFManoMVEpi.pth.tar"         # original research checkpoint
+
+
+def _find_checkpoint_file(checkpoint: Union[str, Path]) -> Path:
+    """A weights file, a directory holding one, or a Hugging Face model id ("<owner>/<repo>") to download from."""
+    p = Path(checkpoint)
     if p.is_file():
         return p
-    cand = p / "DOVFManoMVEpi.pth.tar"
-    if cand.is_file():
-        return cand
-    matches = sorted(p.glob("*.pth.tar"))
-    if len(matches) == 1:
-        return matches[0]
-    raise FileNotFoundError(f"no unique .pth.tar under {p} (found {matches})")
+    if p.is_dir():
+        for name in (RELEASE_FILE, LEGACY_FILE):
+            if (p / name).is_file():
+                return p / name
+        raise FileNotFoundError(f"neither {RELEASE_FILE} nor {LEGACY_FILE} in {p}")
+    if len(str(checkpoint).split("/")) == 2:
+        from huggingface_hub import hf_hub_download
+        return Path(hf_hub_download(repo_id=str(checkpoint), filename=RELEASE_FILE))
+    raise FileNotFoundError(f"no checkpoint at {checkpoint}")
+
+
+def _load_state_dict(path: Path) -> dict:
+    if path.suffix == ".safetensors":
+        from safetensors.torch import load_file
+        return load_file(str(path))
+    return torch.load(path, map_location="cpu")
 
 
 def load_uafit_network(checkpoint_path: Union[str, Path], config_path: Optional[str] = None,
@@ -214,9 +232,9 @@ def load_uafit_network(checkpoint_path: Union[str, Path], config_path: Optional[
     """Build a :class:`UAFitNetwork` and load the released checkpoint into it.
 
     Args:
-        checkpoint_path: a directory containing ``DOVFManoMVEpi.pth.tar``
-            (legacy convention, e.g. ``checkpoints/uafit_w40``) or a direct
-            path to the ``.pth.tar`` file.
+        checkpoint_path: a weights file (``uafit_w40.safetensors`` or the original
+            ``DOVFManoMVEpi.pth.tar``), a directory holding one, or the Hugging Face
+            model id to download the released weights from.
         config_path: reserved for a future YAML override of
             :class:`NetworkConfig`; ``None`` uses the released W40 defaults.
         device: device to move the network to.
@@ -236,7 +254,7 @@ def load_uafit_network(checkpoint_path: Union[str, Path], config_path: Optional[
 
     net = UAFitNetwork(cfg)
     ckpt_file = _find_checkpoint_file(checkpoint_path)
-    state_dict = torch.load(ckpt_file, map_location="cpu")
+    state_dict = _load_state_dict(ckpt_file)
 
     own_keys = set(net.state_dict().keys())
     ckpt_keys = set(state_dict.keys())

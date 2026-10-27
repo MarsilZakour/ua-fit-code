@@ -1,13 +1,13 @@
 """Reproduce UA-Fit Table 1, and fit MHR / UmeTrack hands to the same network evidence.
 
     # Table 1 (MANO, all five datasets, full official splits)
-    python scripts/evaluate.py --checkpoint checkpoints/uafit_w40
+    python scripts/evaluate.py --checkpoint Marsil123/ua-fit
 
     # one dataset, quick subset
-    python scripts/evaluate.py --checkpoint checkpoints/uafit_w40 --datasets HO3D --limit 200
+    python scripts/evaluate.py --checkpoint Marsil123/ua-fit --datasets HO3D --limit 200
 
     # the same checkpoint, fitting MHR or UmeTrack instead of MANO
-    python scripts/evaluate.py --checkpoint checkpoints/uafit_w40 --hand-model mhr
+    python scripts/evaluate.py --checkpoint Marsil123/ua-fit --hand-model mhr
 
 Protocol (paper): full official split per dataset at a fixed view count (DexYCB 8,
 HO3D 5, ARCTIC 8, InterHand2.6M 8, OakInk 4), seed 1, one fit per scene with the
@@ -41,7 +41,8 @@ PAPER_TABLE1 = {  # MPVPE / MPJPE / PA-MPVPE (mm), UA-Fit (MANO)
 
 def parse_args():
     p = argparse.ArgumentParser(description="Reproduce UA-Fit Table 1.")
-    p.add_argument("--checkpoint", default="checkpoints/uafit_w40", help="directory with DOVFManoMVEpi.pth.tar")
+    p.add_argument("--checkpoint", default="Marsil123/ua-fit",
+                   help="Hugging Face model id, a weights file, or a directory holding uafit_w40.safetensors")
     p.add_argument("--data-root", default="data/dataset_tars", help="directory holding the WebDataset shards")
     p.add_argument("--datasets", nargs="+", default=list(TEST_SPLITS), choices=list(TEST_SPLITS))
     p.add_argument("--hand-model", default="mano", choices=HAND_MODELS)

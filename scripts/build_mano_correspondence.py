@@ -34,6 +34,7 @@ def parse_args():
     p.add_argument("--heldout", type=int, default=256, help="synthetic MANO hands used to report the residual")
     p.add_argument("--rounds", type=int, default=4, help="alternating fit / re-attach rounds")
     p.add_argument("--iterations", type=int, default=30, help="LM iterations per fit")
+    p.add_argument("--joint-limit-weight", type=float, default=1e-3, help="penalty outside the model's joint limits")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", default="cpu")
     p.add_argument("--threads", type=int, default=16)
@@ -48,7 +49,7 @@ def main():
     mano = ManoModel(args.mano_assets, side="right", center_idx=0, flat_hand_mean=True)
     correspondence = calibrate_mano_correspondence(
         hand, mano, args.mano_assets, f"{args.model}_right", n_fit=args.samples, n_val=args.heldout,
-        rounds=args.rounds, fit_iterations=args.iterations, seed=args.seed)
+        rounds=args.rounds, fit_iterations=args.iterations, joint_limit_weight=args.joint_limit_weight, seed=args.seed)
     out = args.out or f"assets/correspondences/{args.model}_right.npz"
     os.makedirs(os.path.dirname(out), exist_ok=True)
     correspondence.save(out)

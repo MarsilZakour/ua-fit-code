@@ -29,57 +29,81 @@ released separately as
 ## Install
 
 ```bash
-# 1. Install torch and pytorch3d for your platform first (CUDA specific):
-#    https://pytorch.org/get-started/locally/
-#    https://github.com/facebookresearch/pytorch3d/blob/main/INSTALL.md
-# 2. Then the rest:
-pip install -r requirements.txt
-pip install "git+https://github.com/lixiny/manotorch.git"
+# torch for your platform first: https://pytorch.org/get-started/locally/
+pip install -r requirements.txt          # includes parafit (the solver) and manotorch (MANO layer)
 ```
 
 MANO model files are license-restricted and not shipped here. Download
-`MANO_LEFT.pkl` / `MANO_RIGHT.pkl` from https://mano.is.tue.mpg.de/ and place
-them under `assets/mano_v1_2/models/`.
+`MANO_RIGHT.pkl` (and `MANO_LEFT.pkl`) from https://mano.is.tue.mpg.de/ and place
+them under `assets/mano_v1_2/models/`. MHR and UmeTrack assets are only needed
+for the alternative hand models, see [assets/README.md](assets/README.md).
 
 ## Data and checkpoint
 
-- **Checkpoint**: download the released UA-Fit checkpoint into
-  `checkpoints/uafit_w40/DOVFManoMVEpi.pth.tar` (see
-  [checkpoints/README.md](checkpoints/README.md)).
-- **Datasets**: bring your own multi-view WebDataset shards (DexYCB, HO3D,
-  ARCTIC, InterHand2.6M, OakInk) under `data/dataset_tars/`. The shard URLs are
-  set in `configs/uafit_eval.yaml`; edit them to point at your copies.
+- **Checkpoint**: downloaded automatically from Hugging Face
+  ([Marsil123/ua-fit](https://huggingface.co/Marsil123/ua-fit)) with `--checkpoint Marsil123/ua-fit`;
+  for offline use see [checkpoints/README.md](checkpoints/README.md).
+- **Datasets**: multi-view WebDataset shards of DexYCB, HO3D, ARCTIC,
+  InterHand2.6M and OakInk under `data/dataset_tars/` (shard patterns and
+  split sizes: `uafit/data/loader.py::TEST_SPLITS`).
 
 ## Reproduce Table 1
 
 ```bash
-python scripts/eval.py --ckpt checkpoints/uafit_w40 --config configs/uafit_eval.yaml
+python scripts/evaluate.py --checkpoint Marsil123/ua-fit
 ```
 
-This evaluates the full official split of every dataset at its fixed maximum
-view count and prints MPVPE / MPJPE / PA-MPVPE (mm). Expected (full-set):
+Evaluates the full official split of every dataset at its fixed view count and
+prints MPVPE / MPJPE / PA-MPVPE (mm) next to the paper's numbers:
 
 | dataset (views) | MPVPE | MPJPE | PA-MPVPE |
 |---|---|---|---|
-| DexYCB (8v)    | 7.9 | 7.5 | 4.9 |
-| HO3D (5v)      | 8.0 | 7.4 | 5.1 |
-| ARCTIC (8v)    | 7.5 | 6.6 | 5.7 |
-| InterHand (8v) | 8.8 | 7.8 | 6.2 |
-| OakInk (4v)    | 9.6 | 8.9 | 5.7 |
+| DexYCB (8v)    | 7.86 | 7.55 | 4.92 |
+| HO3D (5v)      | 8.01 | 7.41 | 5.10 |
+| ARCTIC (8v)    | 7.54 | 6.62 | 5.66 |
+| InterHand (8v) | 8.77 | 7.79 | 6.23 |
+| OakInk (4v)    | 9.58 | 8.86 | 5.67 |
 
-MPJPE is measured against mesh-regressed ground-truth joints (both methods use
-the same joint regressor, because the raw joint annotations follow a different
-convention). InterHand crop boxes are rebuilt from the visible ground-truth
-joints, applied identically to every method. See
-[REPRODUCE.md](REPRODUCE.md) for the exact protocol, per-dataset commands, and a
-quick sanity subset.
+See [REPRODUCE.md](REPRODUCE.md) for the protocol, per-dataset and subset
+commands, and how the refactored code was checked against the original.
+
+## Other hand models: MHR and UmeTrack
+
+The network predicts MANO-convention evidence, but the solver is model-agnostic
+([parafit](https://github.com/MarsilZakour/parafit)). The same checkpoint can
+fit Meta's MHR hand or the UmeTrack hand instead of MANO:
+
+```bash
+python scripts/evaluate.py --checkpoint Marsil123/ua-fit --hand-model mhr
+python scripts/evaluate.py --checkpoint Marsil123/ua-fit --hand-model umetrack
+```
+
+MANO's 21 joints (16 mesh-regressed joints + 5 fingertips) are not the skeleton
+joints of these models, so each MANO joint is attached to one bone of the target
+hand with a fixed offset. The correspondence is calibrated once on synthetic
+MANO hands (`scripts/build_mano_correspondence.py`, shipped in
+`assets/correspondences/`); the hand size follows the predicted MANO shape as a
+uniform scale. Metrics stay comparable to MANO ground truth: joints are the
+fitted model's MANO-convention joints and vertices are MANO-topology points read
+off the fitted mesh. Results: [REPRODUCE.md](REPRODUCE.md#other-hand-models).
+
+## Code layout
+
+```
+uafit/network/       images of all views -> vote field, vote precision, triangulated joints, MANO shape
+uafit/data/          test-split WebDataset loader (view selection, crops, InterHand re-crop)
+uafit/fitting.py     the UA-Fit objective as parafit energies + LM solve
+uafit/hand_models.py MANO / MHR / UmeTrack behind one interface (MANO-convention landmarks)
+uafit/metrics.py     MPVPE, mesh-regressed MPJPE, PA-MPVPE
+scripts/evaluate.py  Table 1 (and --hand-model mhr|umetrack)
+scripts/build_mano_correspondence.py   calibrate MANO joints on MHR / UmeTrack
+```
 
 ## Training
 
 The training code and full from-scratch recipe are released after the paper is
 published. This repository currently provides evaluation / inference and the
-released checkpoint. The reusable, model-agnostic solver core is already available
-as **[parafit](https://github.com/MarsilZakour/parafit)**.
+released checkpoint.
 
 ## Citation
 

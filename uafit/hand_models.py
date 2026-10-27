@@ -23,6 +23,7 @@ from torch import Tensor
 
 from parafit.core.lie import rotation_to_axis_angle
 from parafit.energies.base import Energy
+from parafit.energies.joint_limits import JointLimitEnergy
 from parafit.energies.pose_prior import PosePriorEnergy
 from parafit.mapping import ManoConventionHand, ManoCorrespondence, hand_scale_between
 from parafit.mapping.calibration import rigid_align
@@ -46,6 +47,7 @@ class PriorWeights:
     """Pose prior of the fit. The MANO values are the paper's (PCA-Mahalanobis finger prior + root anchor)."""
     finger_pose: float = 0.01      # MANO: PCA-Mahalanobis precision scale; MHR/UmeTrack: L2 to the rest pose
     root_anchor: float = 0.05      # L2 pull of root rotation / translation to the initialisation
+    joint_limits: float = 100.0    # MHR/UmeTrack: quadratic penalty outside the model's own joint limits (rad)
 
 
 class FittableHand(ABC):
@@ -131,11 +133,31 @@ class ManoHand(FittableHand):
         return self.model.forward(params).verts
 
 
+#: MANO OpenPose landmarks of each finger's chain [wrist, base, 2nd, 3rd, tip] (thumb: CMC, MCP, IP, tip).
+FINGER_CHAINS = [[0, 1 + 4 * f, 2 + 4 * f, 3 + 4 * f, 4 + 4 * f] for f in range(5)]
+
+
+def finger_segment_lengths(landmarks: Tensor) -> Tensor:
+    """(B,21,3) OpenPose landmarks -> (B,5,4) segment lengths [palm, proximal, middle, distal] per finger."""
+    chain = landmarks[:, torch.tensor(FINGER_CHAINS, device=landmarks.device)]          # (B,5,5,3)
+    return (chain[:, :, 1:] - chain[:, :, :-1]).norm(dim=-1)
+
+
 class MappedHand(FittableHand):
-    """MHR / UmeTrack fitted through the MANO joint correspondence."""
+    """MHR / UmeTrack fitted through the MANO joint correspondence.
+
+    ``shape_mode`` (how the predicted MANO shape is transferred):
+      * ``"uniform"``: one scale matching the total skeleton length (any model);
+      * ``"segments"``: one scale per finger segment matching each MANO segment length (models with a
+        per-segment rest shape, i.e. UmeTrack's ``segment_scales``);
+      * ``"fixed"``: keep whatever shape was set on the model (e.g. a per-sequence fit).
+    """
 
     def __init__(self, name: str, hand, correspondence: ManoCorrespondence, mano_assets: str,
-                 prior: PriorWeights = PriorWeights(), device="cpu"):
+                 prior: PriorWeights = PriorWeights(), device="cpu", shape_mode: str = "uniform"):
+        if shape_mode == "segments" and not hasattr(hand, "segment_scales"):
+            raise ValueError(f"{name} has no per-segment shape; use shape_mode='uniform'")
+        self.shape_mode = shape_mode
         self.name = name
         self.model = ManoConventionHand(hand, correspondence.to(device))
         self.prior = prior
@@ -146,19 +168,41 @@ class MappedHand(FittableHand):
         with torch.no_grad():
             self._rest_landmarks = self.model.local_landmarks(torch.zeros(1, k, device=device))   # (1,21,3), unit scale
 
-    def set_shape(self, mano_betas: Tensor) -> None:
-        """Uniform hand scale that matches the target's segment lengths to MANO's at the predicted betas."""
-        B = mano_betas.shape[0]
+    def mano_rest_landmarks(self, mano_betas: Tensor) -> Tensor:
+        """MANO's 21 joints (B,21,3) at the flat pose for the predicted betas."""
         self._mano.betas = mano_betas
         with torch.no_grad():
-            mano_rest = self._mano.forward(torch.zeros(B, 51, device=mano_betas.device)).landmarks
+            return self._mano.forward(torch.zeros(mano_betas.shape[0], 51, device=mano_betas.device)).landmarks
+
+    def segment_scales_for(self, mano_betas: Tensor, iterations: int = 3) -> Tensor:
+        """(B,5,4) per-finger segment scales whose mapped MANO landmarks match MANO's segment lengths (fixed point)."""
+        target = finger_segment_lengths(self.mano_rest_landmarks(mano_betas))
+        B, k = mano_betas.shape[0], self.model.n_params - 6
+        hand = self.model.hand
+        hand.segment_scales = torch.ones(B, 5, 4, device=mano_betas.device)
+        self.model.hand_scale = 1.0
+        with torch.no_grad():
+            for _ in range(iterations):
+                current = finger_segment_lengths(self.model.local_landmarks(mano_betas.new_zeros(B, k)))
+                hand.segment_scales = (hand.segment_scales * target / current.clamp_min(1e-6)).clamp(0.5, 2.0)
+        return hand.segment_scales
+
+    def set_shape(self, mano_betas: Tensor) -> None:
+        """Transfer the predicted MANO shape (see ``shape_mode``)."""
+        if self.shape_mode == "fixed":
+            return
+        if self.shape_mode == "segments":
+            self.segment_scales_for(mano_betas)
+            return
+        B = mano_betas.shape[0]
+        mano_rest = self.mano_rest_landmarks(mano_betas)
         self.model.hand_scale = hand_scale_between(self._rest_landmarks.expand(B, -1, -1), mano_rest)
 
     def initial_params(self, joints_world: Tensor) -> Tensor:
         B = joints_world.shape[0]
         k = self._rest_landmarks.new_zeros(B, self.model.n_params - 6)
         with torch.no_grad():
-            rest = self.model.broadcast_scale(joints_world) * self._rest_landmarks.expand(B, -1, -1)
+            rest = self.model.broadcast_scale(joints_world) * self.model.local_landmarks(k)        # rest hand, current shape
             R, t = rigid_align(rest, joints_world)
         return self.model.join(rotation_to_axis_angle(R), k, t)
 
@@ -168,8 +212,13 @@ class MappedHand(FittableHand):
         rest_pull[self.model.hand.articulation_slice] = self.prior.finger_pose
         anchor = init_params.new_zeros(P)
         anchor[:3] = anchor[-3:] = self.prior.root_anchor
-        return [PosePriorEnergy(torch.zeros_like(init_params), precision=rest_pull),
-                PosePriorEnergy(init_params, precision=anchor)]
+        energies = [PosePriorEnergy(torch.zeros_like(init_params), precision=rest_pull),
+                    PosePriorEnergy(init_params, precision=anchor)]
+        limits = getattr(self.model.hand, "articulation_limits", None)
+        if limits is not None and self.prior.joint_limits > 0:
+            energies.append(JointLimitEnergy(limits[:, 0], limits[:, 1], self.model.hand.articulation_slice,
+                                             self.prior.joint_limits))
+        return energies
 
     def mano_vertices(self, params: Tensor) -> Tensor:
         return self.model.mano_vertices(params)
@@ -194,7 +243,7 @@ def load_articulated_hand(name: str, side: str = "right", device="cpu", with_mes
 
 
 def build_hand(name: str, paths: HandModelPaths = HandModelPaths(), prior: PriorWeights = PriorWeights(),
-               device="cpu") -> FittableHand:
+               device="cpu", shape_mode: str = "uniform") -> FittableHand:
     """The fittable hand ``name`` in {"mano", "mhr", "umetrack"} (right hand; UA-Fit evaluates mirrored right hands)."""
     if name == "mano":
         return ManoHand(paths.mano_assets, prior, device)
@@ -202,4 +251,4 @@ def build_hand(name: str, paths: HandModelPaths = HandModelPaths(), prior: Prior
         raise ValueError(f"unknown hand model {name!r}; expected one of {HAND_MODELS}")
     correspondence = ManoCorrespondence.load(f"{paths.correspondence_dir}/{name}_right.npz", device=str(device))
     hand = load_articulated_hand(name, "right", device, True, paths.mhr_cache, paths.umetrack_json)
-    return MappedHand(name, hand, correspondence, paths.mano_assets, prior, device)
+    return MappedHand(name, hand, correspondence, paths.mano_assets, prior, device, shape_mode)
