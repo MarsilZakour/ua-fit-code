@@ -138,6 +138,13 @@ The solver is model-agnostic ([parafit](https://github.com/MarsilZakour/parafit)
 be fitted with Meta's MHR hand or the UmeTrack hand (MANO's joints mapped onto them through a calibrated
 correspondence; assets: [assets/README.md](assets/README.md)). These are examples, not part of the paper:
 
+<p align="center">
+  <img src="assets/media/hand_models_arctic.gif" alt="MANO, MHR and UmeTrack fitted to the same UA-Fit network output on an ARCTIC test sequence, four of eight camera views" width="680">
+  <br>
+  <em>One network output per frame, three hand models: MANO (UA-Fit), MHR and UmeTrack fitted by the same solver
+  (ARCTIC test sequence, 4 of 8 views; UmeTrack with one shape fitted per sequence).</em>
+</p>
+
 ```bash
 python scripts/evaluate.py --datasets HO3D --limit 200 --hand-model mhr
 python scripts/evaluate.py --datasets HO3D --limit 200 --hand-model umetrack
