@@ -87,6 +87,37 @@ uniform scale. Metrics stay comparable to MANO ground truth: joints are the
 fitted model's MANO-convention joints and vertices are MANO-topology points read
 off the fitted mesh. Results: [REPRODUCE.md](REPRODUCE.md#other-hand-models).
 
+## Use in your code
+
+The weights are downloaded from Hugging Face ([Marsil123/ua-fit](https://huggingface.co/Marsil123/ua-fit)) on first
+use and cached. One multi-view batch -> fitted hands:
+
+```python
+import torch
+from uafit.data import batch_to_device, build_test_loader
+from uafit.fitting import fit_hands
+from uafit.hand_models import build_hand
+from uafit.network import load_uafit_network
+
+device = "cuda"
+network = load_uafit_network("Marsil123/ua-fit", device=device)   # downloads uafit_w40.safetensors
+hand = build_hand("mano", device=device)                           # or "mhr" / "umetrack" (see assets/README.md)
+
+loader = build_test_loader("HO3D", "data/dataset_tars", batch_size=4, workers=0)
+batch = batch_to_device(next(iter(loader)), device)                # images + cameras of all views per scene
+
+with torch.no_grad():
+    evidence = network(batch)                                      # vote fields, uncertainty, triangulated joints, shape
+    fit = fit_hands(hand, evidence, network.huber_radius_px)       # uncertainty-weighted LM solve
+
+fit.joints          # (B, 21, 3) joints in metres (MANO convention, OpenPose order)
+fit.mano_vertices   # (B, 778, 3) MANO-topology vertices in metres
+fit.params          # (B, P) the hand model's parameters
+```
+
+For your own data, build a batch with the same keys (`image`, `target_cam_intr`, `target_cam_extr`,
+`cam_view_num`; see `uafit/data/collate.py`).
+
 ## Code layout
 
 ```

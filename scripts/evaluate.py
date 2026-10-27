@@ -27,7 +27,7 @@ import torch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from uafit.data import TEST_SPLITS, build_test_loader  # noqa: E402
+from uafit.data import TEST_SPLITS, batch_to_device, build_test_loader  # noqa: E402
 from uafit.fitting import FitSettings, fit_hands  # noqa: E402
 from uafit.hand_models import HAND_MODELS, HandModelPaths, build_hand  # noqa: E402
 from uafit.metrics import mano_joints_from_vertices, mean_point_error, procrustes_aligned_error  # noqa: E402
@@ -59,18 +59,6 @@ def parse_args():
     return p.parse_args()
 
 
-def to_device(batch: dict, device) -> dict:
-    out = {}
-    for key, value in batch.items():
-        if torch.is_tensor(value):
-            out[key] = value.to(device).float() if value.is_floating_point() else value.to(device)
-        elif isinstance(value, np.ndarray) and key != "cam_view_num":
-            out[key] = torch.as_tensor(value).to(device)
-        else:
-            out[key] = value
-    return out
-
-
 def evaluate_split(name, network, hand, settings, joint_regressor, args, device) -> dict:
     split = TEST_SPLITS[name]
     n_target = args.limit or split.full_size
@@ -82,7 +70,7 @@ def evaluate_split(name, network, hand, settings, joint_regressor, args, device)
         torch.cuda.synchronize()
     start = time.time()
     for batch in loader:
-        batch = to_device(batch, device)
+        batch = batch_to_device(batch, device)
         with torch.no_grad():
             evidence = network(batch)
             fit = fit_hands(hand, evidence, network.huber_radius_px, settings)

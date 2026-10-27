@@ -18,6 +18,7 @@ Public API:
     `TEST_SPLITS` -- registry of the 5 Table-1 splits (shard glob, fixed view
         count, official split size, ...).
 """
+from .collate import batch_to_device
 from .loader import TEST_SPLITS, TestSplit, build_test_loader
 
-__all__ = ["TEST_SPLITS", "TestSplit", "build_test_loader"]
+__all__ = ["TEST_SPLITS", "TestSplit", "batch_to_device", "build_test_loader"]

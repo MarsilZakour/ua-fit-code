@@ -36,3 +36,16 @@ def collate_views(samples: List[Dict]) -> Dict:
         "master_verts_3d": torch.as_tensor(np.stack([s["master_verts_3d"] for s in samples], axis=0)),
         "cam_view_num": np.asarray([s["image"].shape[0] for s in samples], dtype=np.int64),
     }
+
+
+def batch_to_device(batch: Dict, device) -> Dict:
+    """Move a collated batch to ``device`` (floating tensors as float32); ``cam_view_num`` stays a numpy array."""
+    out = {}
+    for key, value in batch.items():
+        if torch.is_tensor(value):
+            out[key] = value.to(device).float() if value.is_floating_point() else value.to(device)
+        elif isinstance(value, np.ndarray) and key != "cam_view_num":
+            out[key] = torch.as_tensor(value).to(device)
+        else:
+            out[key] = value
+    return out
