@@ -21,7 +21,7 @@ Every number is measured through one harness at seed 1:
 ## Full table
 
 ```bash
-python scripts/evaluate.py --checkpoint Marsil123/ua-fit --output runs/table1_mano.json
+python scripts/evaluate.py --output runs/table1_mano.json
 ```
 
 | dataset (views) | n     | MPVPE | MPJPE | PA-MPVPE |
@@ -32,7 +32,7 @@ python scripts/evaluate.py --checkpoint Marsil123/ua-fit --output runs/table1_ma
 | InterHand (8v) | 85235 | 8.77 | 7.79 | 6.23 |
 | OakInk (4v)    | 21322 | 9.58 | 8.86 | 5.67 |
 
-RUNTIME_NOTE
+Runtime: about 1.5 h for all five splits on one (shared) H200; InterHand2.6M dominates.
 
 ## Per-dataset and quick runs
 
@@ -46,29 +46,11 @@ python scripts/evaluate.py --iterations 5                      # solver settings
 Quick-subset reference (`--datasets HO3D DexYCB --limit 200`, 208 scenes each):
 HO3D 7.61 / 7.16 / 4.66, DexYCB 7.38 / 7.07 / 4.73.
 
-## Other hand models
+## Other hand models (examples)
 
-`--hand-model mhr` and `--hand-model umetrack` fit Meta's MHR hand or the UmeTrack
-hand to the same network evidence through the calibrated MANO-joint
-correspondence (see README and `assets/README.md`). Joints are the fitted
-model's MANO-convention joints and vertices are MANO-topology points read off the
-fitted mesh, so the numbers are comparable to the MANO row, with two
-representation gaps on top: how well the model can place MANO's joints
-(calibration, held-out residual below) and how well a uniformly scaled template
-matches each subject's MANO surface (shape is transferred from the predicted MANO
-betas as a single scale).
-
-| model | correspondence held-out joint / vertex residual | HO3D (200) MPVPE / MPJPE / PA | DexYCB (200) MPVPE / MPJPE / PA |
-|---|---|---|---|
-| MANO     | (exact)            | 7.61 / 7.16 / 4.66 | 7.38 / 7.07 / 4.73 |
-| MHR      | 1.62 / 5.49 mm     | 8.87 / 7.48 / 6.35 | 9.33 / 7.19 / 7.54 |
-| UmeTrack | UME_CALIB          | UME_HO3D | UME_DEX |
-
-MHR reaches almost the MANO joint accuracy (MPJPE +0.1-0.3 mm); the vertex
-metrics carry the shape gap of a uniformly scaled template (MPVPE +1.3-2 mm,
-PA-MPVPE +1.7-2.8 mm). MHR fits run at ~0.5 scenes/s (full-body forward
-kinematics and a forward-mode Jacobian per iteration) vs ~3.6 for MANO on the
-same shared GPU.
+`--hand-model mhr` / `--hand-model umetrack` fit Meta's MHR hand or the UmeTrack hand to the same network output
+through a calibrated MANO-joint correspondence. They are examples of the model-agnostic solver, not part of the
+paper; see the README.
 
 ## How the release code was checked against the original
 

@@ -35,22 +35,33 @@ pip install -r requirements.txt          # includes parafit (the solver) and man
 
 MANO model files are license-restricted and not shipped here. Download
 `MANO_RIGHT.pkl` (and `MANO_LEFT.pkl`) from https://mano.is.tue.mpg.de/ and place
-them under `assets/mano_v1_2/models/`. MHR and UmeTrack assets are only needed
-for the alternative hand models, see [assets/README.md](assets/README.md).
+them under `assets/mano_v1_2/models/`.
 
-## Data and checkpoint
+## Checkpoint and data
 
-- **Checkpoint**: downloaded automatically from Hugging Face
-  ([Marsil123/ua-fit](https://huggingface.co/Marsil123/ua-fit)) with `--checkpoint Marsil123/ua-fit`;
-  for offline use see [checkpoints/README.md](checkpoints/README.md).
-- **Datasets**: multi-view WebDataset shards of DexYCB, HO3D, ARCTIC,
-  InterHand2.6M and OakInk under `data/dataset_tars/` (shard patterns and
-  split sizes: `uafit/data/loader.py::TEST_SPLITS`).
+- **Checkpoint**: [Marsil123/ua-fit](https://huggingface.co/Marsil123/ua-fit) on Hugging Face
+  (`uafit_w40.safetensors`). The code downloads and caches it on first use; for offline use see
+  [checkpoints/README.md](checkpoints/README.md).
+- **Datasets**: the multi-view test splits as WebDataset shards under `data/dataset_tars/`
+  (shard patterns, view counts and split sizes: `uafit/data/loader.py::TEST_SPLITS`):
+
+```
+data/dataset_tars/
+  DexYCB_mv/DexYCB_mv_test-{000000..000003}.tar
+  HO3D_mv_test/HO3D_mv_test-{000000..000002}.tar
+  Arctic_mv/Arctic_mv_val_p1-{000000..000045}.tar
+  Interhand_mv/Interhand_mv_val-{000000..000022}.tar
+  Oakink_mv/Oakink_mv_test-{000000..000045}.tar
+```
+
+  Each shard sample is one multi-view frame: `image_<v>.jpg` per camera plus `label.pyd` (a pickle with per-camera
+  `cam_intr`, `cam_extr`, `bbox_center`, `bbox_scale` and the ground truth `joints_3d`, `verts_3d`, `mano_pose`,
+  `mano_shape`).
 
 ## Reproduce Table 1
 
 ```bash
-python scripts/evaluate.py --checkpoint Marsil123/ua-fit
+python scripts/evaluate.py
 ```
 
 Evaluates the full official split of every dataset at its fixed view count and
@@ -67,30 +78,20 @@ prints MPVPE / MPJPE / PA-MPVPE (mm) next to the paper's numbers:
 See [REPRODUCE.md](REPRODUCE.md) for the protocol, per-dataset and subset
 commands, and how the refactored code was checked against the original.
 
-## Other hand models: MHR and UmeTrack
+## Examples
 
-The network predicts MANO-convention evidence, but the solver is model-agnostic
-([parafit](https://github.com/MarsilZakour/parafit)). The same checkpoint can
-fit Meta's MHR hand or the UmeTrack hand instead of MANO:
+### Evaluate on the WebDataset shards
 
 ```bash
-python scripts/evaluate.py --checkpoint Marsil123/ua-fit --hand-model mhr
-python scripts/evaluate.py --checkpoint Marsil123/ua-fit --hand-model umetrack
+python scripts/evaluate.py --checkpoint Marsil123/ua-fit --datasets HO3D          # one dataset, full split
+python scripts/evaluate.py --datasets HO3D DexYCB --limit 200                      # quick subset
+python scripts/evaluate.py --datasets DexYCB --views 4                             # fewer cameras
+python scripts/evaluate.py --data-root /path/to/dataset_tars --output results.json
 ```
 
-MANO's 21 joints (16 mesh-regressed joints + 5 fingertips) are not the skeleton
-joints of these models, so each MANO joint is attached to one bone of the target
-hand with a fixed offset. The correspondence is calibrated once on synthetic
-MANO hands (`scripts/build_mano_correspondence.py`, shipped in
-`assets/correspondences/`); the hand size follows the predicted MANO shape as a
-uniform scale. Metrics stay comparable to MANO ground truth: joints are the
-fitted model's MANO-convention joints and vertices are MANO-topology points read
-off the fitted mesh. Results: [REPRODUCE.md](REPRODUCE.md#other-hand-models).
+### Run UA-Fit from Python
 
-## Use in your code
-
-The weights are downloaded from Hugging Face ([Marsil123/ua-fit](https://huggingface.co/Marsil123/ua-fit)) on first
-use and cached. One multi-view batch -> fitted hands:
+Shards -> network (weights from Hugging Face) -> uncertainty-weighted MANO fit:
 
 ```python
 import torch
@@ -101,22 +102,46 @@ from uafit.network import load_uafit_network
 
 device = "cuda"
 network = load_uafit_network("Marsil123/ua-fit", device=device)   # downloads uafit_w40.safetensors
-hand = build_hand("mano", device=device)                           # or "mhr" / "umetrack" (see assets/README.md)
+mano = build_hand("mano", device=device)
 
 loader = build_test_loader("HO3D", "data/dataset_tars", batch_size=4, workers=0)
 batch = batch_to_device(next(iter(loader)), device)                # images + cameras of all views per scene
 
 with torch.no_grad():
     evidence = network(batch)                                      # vote fields, uncertainty, triangulated joints, shape
-    fit = fit_hands(hand, evidence, network.huber_radius_px)       # uncertainty-weighted LM solve
+    fit = fit_hands(mano, evidence, network.huber_radius_px)       # uncertainty-weighted LM solve
 
-fit.joints          # (B, 21, 3) joints in metres (MANO convention, OpenPose order)
-fit.mano_vertices   # (B, 778, 3) MANO-topology vertices in metres
-fit.params          # (B, P) the hand model's parameters
+fit.joints          # (B, 21, 3) joints in metres (OpenPose order)
+fit.mano_vertices   # (B, 778, 3) MANO vertices in metres
+fit.params          # (B, 51) MANO axis-angle pose (48) + translation (3); shape = evidence.mano_betas
 ```
 
-For your own data, build a batch with the same keys (`image`, `target_cam_intr`, `target_cam_extr`,
+For your own cameras, build a batch with the same keys (`image`, `target_cam_intr`, `target_cam_extr`,
 `cam_view_num`; see `uafit/data/collate.py`).
+
+### Read a shard directly
+
+```python
+import webdataset as wds
+
+shard = "data/dataset_tars/HO3D_mv_test/HO3D_mv_test-000000.tar"
+for sample in wds.WebDataset(shard, shardshuffle=False).decode("rgb8"):
+    views = sorted(k for k in sample if k.startswith("image_"))
+    label = sample["label.pyd"]
+    print(len(views), "cameras", sample[views[0]].shape, label["cam_intr"][0].shape, label["verts_3d"][0].shape)
+    break
+```
+
+### Optional: fit other hand models
+
+The solver is model-agnostic ([parafit](https://github.com/MarsilZakour/parafit)), so the same network output can also
+be fitted with Meta's MHR hand or the UmeTrack hand (MANO's joints mapped onto them through a calibrated
+correspondence; assets: [assets/README.md](assets/README.md)). These are examples, not part of the paper:
+
+```bash
+python scripts/evaluate.py --datasets HO3D --limit 200 --hand-model mhr
+python scripts/evaluate.py --datasets HO3D --limit 200 --hand-model umetrack
+```
 
 ## Code layout
 
@@ -124,10 +149,9 @@ For your own data, build a batch with the same keys (`image`, `target_cam_intr`,
 uafit/network/       images of all views -> vote field, vote precision, triangulated joints, MANO shape
 uafit/data/          test-split WebDataset loader (view selection, crops, InterHand re-crop)
 uafit/fitting.py     the UA-Fit objective as parafit energies + LM solve
-uafit/hand_models.py MANO / MHR / UmeTrack behind one interface (MANO-convention landmarks)
+uafit/hand_models.py the fitted hand model (MANO; MHR / UmeTrack examples)
 uafit/metrics.py     MPVPE, mesh-regressed MPJPE, PA-MPVPE
-scripts/evaluate.py  Table 1 (and --hand-model mhr|umetrack)
-scripts/build_mano_correspondence.py   calibrate MANO joints on MHR / UmeTrack
+scripts/evaluate.py  Table 1
 ```
 
 ## Training
