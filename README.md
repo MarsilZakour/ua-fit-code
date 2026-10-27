@@ -46,8 +46,16 @@ them under `assets/mano_v1_2/models/`.
 - **Checkpoint**: [Marsil123/ua-fit](https://huggingface.co/Marsil123/ua-fit) on Hugging Face
   (`uafit_w40.safetensors`). The code downloads and caches it on first use; for offline use see
   [checkpoints/README.md](checkpoints/README.md).
-- **Datasets**: the multi-view test splits as WebDataset shards under `data/dataset_tars/`
-  (shard patterns, view counts and split sizes: `uafit/data/loader.py::TEST_SPLITS`):
+- **Datasets**: the multi-view test splits as WebDataset shards, released by
+  [POEM-v2](https://huggingface.co/datasets/JubSteven/POEM-v2) (Yang et al.). Download only the test shards
+  (122 files, about 122 GB) into `data/dataset_tars/`:
+
+```bash
+pip install -U huggingface_hub
+hf download JubSteven/POEM-v2 --repo-type dataset --local-dir data/dataset_tars \
+  --include "DexYCB_mv/DexYCB_mv_test-*" "HO3D_mv_test/*" "Arctic_mv/Arctic_mv_val_p1-*" \
+            "Interhand_mv/Interhand_mv_val-*" "Oakink_mv/Oakink_mv_test-*"
+```
 
 ```
 data/dataset_tars/
@@ -60,7 +68,8 @@ data/dataset_tars/
 
   Each shard sample is one multi-view frame: `image_<v>.jpg` per camera plus `label.pyd` (a pickle with per-camera
   `cam_intr`, `cam_extr`, `bbox_center`, `bbox_scale` and the ground truth `joints_3d`, `verts_3d`, `mano_pose`,
-  `mano_shape`).
+  `mano_shape`). Shard patterns, view counts and split sizes: `uafit/data/loader.py::TEST_SPLITS`. Please also
+  follow the licenses of the original datasets.
 
 ## Reproduce Table 1
 

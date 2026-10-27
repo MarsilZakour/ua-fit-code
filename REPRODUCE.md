@@ -18,6 +18,11 @@ Every number is measured through one harness at seed 1:
   (out-of-frame joints inflate them); every view's crop is rebuilt from the
   visible ground-truth joints, identically for every method.
 
+## Data
+
+The test shards are the multi-view WebDataset release of POEM-v2
+(https://huggingface.co/datasets/JubSteven/POEM-v2); see the README for the download command (test shards only).
+
 ## Full table
 
 ```bash
