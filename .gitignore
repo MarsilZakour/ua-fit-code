@@ -37,3 +37,8 @@ configs/uafit_stage_fit.yaml
 configs/uafit_stage_betabone.yaml
 # Internal reproduction findings (ships with the training release).
 REPRO_ARCTIC_DIAGNOSIS.md
+
+# Third-party hand-model assets (license-restricted; see assets/README.md).
+/assets/mano_v1_2
+/assets/mhr/
+/assets/umetrack/
